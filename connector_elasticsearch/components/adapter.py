@@ -12,27 +12,41 @@ try:
     import elasticsearch
     import elasticsearch.helpers
 except ImportError:
-    _logger.debug('Can not import elasticsearch')
+    _logger.debug("Can not import elasticsearch")
 
 
 class ElasticsearchAdapter(Component):
     _name = "elasticsearch.adapter"
-    _inherit = ['base.backend.adapter', 'elasticsearch.se.connector']
-    _usage = 'se.backend.adapter'
+    _inherit = ["base.backend.adapter", "elasticsearch.se.connector"]
+    _usage = "se.backend.adapter"
+
+    @property
+    def _index_name(self):
+        return self.work.index.name.lower()
+
+    @property
+    def _doc_type(self):
+        return self.work.index.config_id.doc_type
 
     def _get_es(self):
         backend = self.backend_record
 
-        es = elasticsearch.Elasticsearch([
-            {'host': backend.elasticsearch_server_ip,
-             'port': int(backend.elasticsearch_server_port)}
-        ])
+        es = elasticsearch.Elasticsearch(
+            [
+                {
+                    "host": backend.elasticsearch_server_ip,
+                    "port": int(backend.elasticsearch_server_port),
+                }
+            ]
+        )
 
         if not es.ping():
-            raise ValueError("echec de connexion avec elasticsearch")
+            raise ValueError("Connect Exception with elasticsearch")
 
-        if not es.indices.exists(self.work.index.name.lower()):
-            es.indices.create(index=self.work.index.name.lower())
+        if not es.indices.exists(self._index_name):
+            es.indices.create(
+                index=self._index_name, body=self.work.index.config_id.body
+            )
         return es
 
     def index(self, datas):
@@ -40,30 +54,33 @@ class ElasticsearchAdapter(Component):
         dataforbulk = []
         for data in datas:
             # Ensure that the objectID is set for creating/updating the record
-            if not data.get('objectID'):
+            if not data.get("objectID"):
                 raise UserError(
-                    _('The key objectID is missing in the data %s') % data)
+                    _("The key objectID is missing in the data %s") % data
+                )
             else:
-                action = {"_index": self.work.index.name.lower(),
-                          "_type": "odoo",
-                          "_id": data.get('objectID'),
-                          '_source': data
-                          }
+                action = {
+                    "_index": self._index_name,
+                    "_type": self._doc_type,
+                    "_id": data.get("objectID"),
+                    "_source": data,
+                }
                 dataforbulk.append(action)
 
         res = elasticsearch.helpers.bulk(es, dataforbulk)
         # checks if number of indexed object and object in datas are equal
-        return len(datas)-res[0] == 0
+        return len(datas) - res[0] == 0
 
     def delete(self, binding_ids):
         es = self._get_es()
-        res = es.delete(index=self.work.index.name.lower(),
-                        doc_type="product",
-                        id=binding_ids)
+        res = es.delete(
+            index=self._index_name, doc_type=self._doc_type, id=binding_ids
+        )
         return res
 
     def clear(self):
         es = self._get_es()
-        res = es.indices.delete(index=self.work.index.name.lower(),
-                                ignore=[400, 404])
-        return res['acknowledged']
+        res = es.indices.delete(index=self._index_name, ignore=[400, 404])
+        # recreate the index
+        self._get_es()
+        return res["acknowledged"]

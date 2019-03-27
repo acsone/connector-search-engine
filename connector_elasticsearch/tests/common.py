@@ -8,17 +8,16 @@ from odoo.addons.component.tests.common import SavepointComponentCase
 
 
 class Indices(object):
-
     def __init__(self, index):
         self.elasticindex = index
 
     def exists(self, index):
         return False
 
-    def create(self, index):  # pylint: disable=W8106
+    def create(self, index, body=None, params=None):  # pylint: disable=W8106
         # disabled error w8106 because since this is a mock class
         # I don't need to call super model's create
-        self.elasticindex[index] = self
+        self.elasticindex[index] = {"body": body, "params": params}
         return True
 
     def delete(self, index, ignore):
@@ -27,7 +26,6 @@ class Indices(object):
 
 
 class ElasticsearchMock(object):
-
     def __init__(self):
         self.ipAddress = None
         self.port = None
@@ -44,7 +42,6 @@ class ElasticsearchMock(object):
 
 
 class HelpersMock(object):
-
     def __init__(self):
         self.ipAddress = None
         self.port = None
@@ -63,13 +60,13 @@ def mock_api(env):
         elasticsearch_mock.port = servers[0].get("port")
         return elasticsearch_mock
 
-    with mock.patch('elasticsearch.Elasticsearch', get_elasticmock_interface),\
-            mock.patch('elasticsearch.helpers', helpers_mock):
+    with mock.patch(
+        "elasticsearch.Elasticsearch", get_elasticmock_interface
+    ), mock.patch("elasticsearch.helpers", helpers_mock):
         yield elasticsearch_mock
 
 
 class ConnectorElasticsearchCase(SavepointComponentCase):
-
     def setUp(self):
         super(ConnectorElasticsearchCase, self).setUp()
-        self.backend = self.env.ref('connector_elasticsearch.backend_1')
+        self.backend = self.env.ref("connector_elasticsearch.backend_1")
