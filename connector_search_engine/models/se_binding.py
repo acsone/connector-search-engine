@@ -37,7 +37,7 @@ class SeBinding(models.AbstractModel):
     def _jobify_recompute_json(self, force_export=False):
         description = _('Recompute %s json and check if need update'
                         % self._name)
-        for record in self:
+        for record in self.with_context(tracking_disable=True):
             record.with_delay(description=description).recompute_json(
                 force_export=force_export)
 

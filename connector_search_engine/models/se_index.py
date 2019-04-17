@@ -59,9 +59,13 @@ class SeIndex(models.Model):
         return self.recompute_all_binding(force_export=True)
 
     def recompute_all_binding(self, force_export=False):
-        for record in self:
-            binding_obj = self.env[record.model_id.model]
-            for bindings in binding_obj.search([('index_id', '=', record.id)]):
+        target_models = self.mapped("model_id.model")
+        for target_model in target_models:
+            indexes = self.filtered(lambda r: r.model_id.model == target_model)
+            bindings = self.env[target_model].search(
+                [("index_id", "in", indexes.ids)]
+            )
+            if bindings:
                 bindings._jobify_recompute_json(force_export=force_export)
         return True
 
@@ -115,3 +119,32 @@ class SeIndex(models.Model):
             adapter = work.component(usage='se.backend.adapter')
             adapter.clear()
         return True
+
+    def resynchronize_all_bindings(self):
+        """This method will iter on all item in the index of the search engine
+        if the corresponding binding do not exist on odoo it will create a job
+        that delete all this obsolete items.
+        You should not use this method for day to day job, it only an helper
+        for recovering your index after a dammage.
+        You can also drop index but this will introduce downtime, so it's
+        better to force a resynchronization"""
+        for index in self:
+            item_ids = []
+            backend = index.backend_id.specific_backend
+            with backend.work_on(self._name, index=index) as work:
+                adapter = work.component(usage="se.backend.adapter")
+                for se_binding in adapter.iter():
+                    binding = self.env[index.model_id.model].search(
+                        [("id", "=", se_binding[adapter._record_id_key])]
+                    )
+                    if not binding:
+                        item_ids.append(se_binding[adapter._record_id_key])
+                index.with_delay().delete_obsolete_item(item_ids)
+
+    @job(default_channel="root.search_engine")
+    @api.multi
+    def delete_obsolete_item(self, item_ids):
+        backend = self.backend_id.specific_backend
+        with backend.work_on(self._name, index=self) as work:
+            adapter = work.component(usage="se.backend.adapter")
+            adapter.delete(item_ids)
